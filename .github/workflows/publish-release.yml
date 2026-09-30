@@ -44,7 +44,7 @@ jobs:
           after = json.loads(gh('api', f'repos/{repo}/releases/tags/{tag}'))
           assert {a['name'] for a in after['assets']} == set(keep + ['SHA256SUMS.txt'])
           assert all(a['state'] == 'uploaded' for a in after['assets'])
-                    PY
+          PY
       - name: Save original release metadata
         if: always()
         uses: actions/upload-artifact@v4
