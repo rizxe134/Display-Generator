@@ -53,24 +53,24 @@ jobs:
           Path('installers/SHA256SUMS.txt').write_text('\n'.join(checksums) + '\n')
           Path('release-notes.md').write_text('''## OLED Studio 1.0.0
 
-Offline desktop designer for monochrome OLED graphics.
+          Offline desktop designer for monochrome OLED graphics.
 
-- Draw pixels, lines, rectangles, circles, ellipses, and bitmap text.
-- Save and reopen editable projects with native file dialogs.
-- Export Arduino / ESP32 C++ sketches or Raspberry Pi Linux Python scripts.
-- SH1106 128×64 and SSD1306 128×64 / 128×32 I²C display presets.
-- All three platform builds, drawing tests, project-file tests, and startup checks passed.
+          - Draw pixels, lines, rectangles, circles, ellipses, and bitmap text.
+          - Save and reopen editable projects with native file dialogs.
+          - Export Arduino / ESP32 C++ sketches or Raspberry Pi Linux Python scripts.
+          - SH1106 128×64 and SSD1306 128×64 / 128×32 I²C display presets.
+          - All three platform builds, drawing tests, project-file tests, and startup checks passed.
 
-### Choose your download
+          ### Choose your download
 
-- Windows: setup `.exe` or portable `.exe` for your processor.
-- macOS: `.dmg` or `.zip`, `arm64` for Apple Silicon or `x64` for Intel.
-- Linux: `.AppImage` or `.deb`, `x64` or `arm64`.
+          - Windows: setup `.exe` or portable `.exe` for your processor.
+          - macOS: `.dmg` or `.zip`, `arm64` for Apple Silicon or `x64` for Intel.
+          - Linux: `.AppImage` or `.deb`, `x64` or `arm64`.
 
-These initial packages are unsigned. Code signing and physical OLED hardware testing are not included in this release. Raspberry Pi export targets Linux boards, not Pico.
+          These initial packages are unsigned. Code signing and physical OLED hardware testing are not included in this release. Raspberry Pi export targets Linux boards, not Pico.
 
-SHA256SUMS.txt contains checksums for all downloads.
-''')
+          SHA256SUMS.txt contains checksums for all downloads.
+          ''')
           PY
       - name: Create draft and attach installers
         run: |
