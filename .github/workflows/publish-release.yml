@@ -1,0 +1,85 @@
+name: Publish OLED Studio v1.0.0
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN_ID: '36672315233'
+      SOURCE_SHA: fc3750bb5d118fde1c0d2a265be12d81ba3e0cc9
+      RELEASE_TAG: v1.0.0
+    steps:
+      - name: Verify the tested build
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" > build-run.json
+          python3 - <<'PY'
+          import json, os
+          run = json.load(open('build-run.json'))
+          assert run['conclusion'] == 'success', 'The source build did not succeed'
+          assert run['head_sha'] == os.environ['SOURCE_SHA'], 'Source commit mismatch'
+          assert run['path'] == '.github/workflows/build.yml', 'Wrong build workflow'
+          PY
+          gh api "repos/$GITHUB_REPOSITORY/contents/package.json?ref=$SOURCE_SHA" --jq .content | base64 --decode > package.json
+          python3 - <<'PY'
+          import json, os
+          assert 'v' + json.load(open('package.json'))['version'] == os.environ['RELEASE_TAG'], 'Package version mismatch'
+          PY
+      - name: Download verified installers
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: '36672315233'
+          pattern: oled-studio-*
+          path: installers
+          merge-multiple: true
+      - name: Prepare release notes and checksums
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          files = sorted(Path('installers').iterdir())
+          for ext in ['.exe', '.dmg', '.zip', '.AppImage', '.deb']:
+              assert any(f.suffix == ext for f in files), 'Missing installer type: ' + ext
+          assert all(f.is_file() and f.stat().st_size > 0 for f in files), 'Invalid installer'
+          checksums = []
+          for f in files:
+              with f.open('rb') as stream:
+                  digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+              checksums.append(digest + '  ' + f.name)
+          Path('installers/SHA256SUMS.txt').write_text('\n'.join(checksums) + '\n')
+          Path('release-notes.md').write_text('''## OLED Studio 1.0.0
+
+Offline desktop designer for monochrome OLED graphics.
+
+- Draw pixels, lines, rectangles, circles, ellipses, and bitmap text.
+- Save and reopen editable projects with native file dialogs.
+- Export Arduino / ESP32 C++ sketches or Raspberry Pi Linux Python scripts.
+- SH1106 128×64 and SSD1306 128×64 / 128×32 I²C display presets.
+- All three platform builds, drawing tests, project-file tests, and startup checks passed.
+
+### Choose your download
+
+- Windows: setup `.exe` or portable `.exe` for your processor.
+- macOS: `.dmg` or `.zip`, `arm64` for Apple Silicon or `x64` for Intel.
+- Linux: `.AppImage` or `.deb`, `x64` or `arm64`.
+
+These initial packages are unsigned. Code signing and physical OLED hardware testing are not included in this release. Raspberry Pi export targets Linux boards, not Pico.
+
+SHA256SUMS.txt contains checksums for all downloads.
+''')
+          PY
+      - name: Create draft and attach installers
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft > draft-status.txt 2>/dev/null; then
+            test "$(cat draft-status.txt)" = true
+          else
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --title "OLED Studio $RELEASE_TAG" --draft --notes-file release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" installers/* --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Publish the complete release
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest --notes-file release-notes.md
+
