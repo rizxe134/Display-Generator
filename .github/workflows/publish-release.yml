@@ -1,85 +1,53 @@
-name: Publish OLED Studio v1.0.0
+name: Simplify OLED Studio v1.0.0 downloads
 on:
   workflow_dispatch:
 permissions:
   actions: read
   contents: write
 jobs:
-  publish:
+  simplify:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      BUILD_RUN_ID: '36672315233'
-      SOURCE_SHA: fc3750bb5d118fde1c0d2a265be12d81ba3e0cc9
-      RELEASE_TAG: v1.0.0
     steps:
-      - name: Verify the tested build
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" > build-run.json
-          python3 - <<'PY'
-          import json, os
-          run = json.load(open('build-run.json'))
-          assert run['conclusion'] == 'success', 'The source build did not succeed'
-          assert run['head_sha'] == os.environ['SOURCE_SHA'], 'Source commit mismatch'
-          assert run['path'] == '.github/workflows/build.yml', 'Wrong build workflow'
-          PY
-          gh api "repos/$GITHUB_REPOSITORY/contents/package.json?ref=$SOURCE_SHA" --jq .content | base64 --decode > package.json
-          python3 - <<'PY'
-          import json, os
-          assert 'v' + json.load(open('package.json'))['version'] == os.environ['RELEASE_TAG'], 'Package version mismatch'
-          PY
-      - name: Download verified installers
-        uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          run-id: '36672315233'
-          pattern: oled-studio-*
-          path: installers
-          merge-multiple: true
-      - name: Prepare release notes and checksums
+      - name: Keep primary installers and update download guide
         run: |
           python3 - <<'PY'
+          import json, subprocess
           from pathlib import Path
-          import hashlib
-          files = sorted(Path('installers').iterdir())
-          for ext in ['.exe', '.dmg', '.zip', '.AppImage', '.deb']:
-              assert any(f.suffix == ext for f in files), 'Missing installer type: ' + ext
-          assert all(f.is_file() and f.stat().st_size > 0 for f in files), 'Invalid installer'
-          checksums = []
-          for f in files:
-              with f.open('rb') as stream:
-                  digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-              checksums.append(digest + '  ' + f.name)
-          Path('installers/SHA256SUMS.txt').write_text('\n'.join(checksums) + '\n')
-          Path('release-notes.md').write_text('''## OLED Studio 1.0.0
-
-          Offline desktop designer for monochrome OLED graphics.
-
-          - Draw pixels, lines, rectangles, circles, ellipses, and bitmap text.
-          - Save and reopen editable projects with native file dialogs.
-          - Export Arduino / ESP32 C++ sketches or Raspberry Pi Linux Python scripts.
-          - SH1106 128×64 and SSD1306 128×64 / 128×32 I²C display presets.
-          - All three platform builds, drawing tests, project-file tests, and startup checks passed.
-
-          ### Choose your download
-
-          - Windows: setup `.exe` or portable `.exe` for your processor.
-          - macOS: `.dmg` or `.zip`, `arm64` for Apple Silicon or `x64` for Intel.
-          - Linux: `.AppImage` or `.deb`, `x64` or `arm64`.
-
-          These initial packages are unsigned. Code signing and physical OLED hardware testing are not included in this release. Raspberry Pi export targets Linux boards, not Pico.
-
-          SHA256SUMS.txt contains checksums for all downloads.
-          ''')
-          PY
-      - name: Create draft and attach installers
-        run: |
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft > draft-status.txt 2>/dev/null; then
-            test "$(cat draft-status.txt)" = true
-          else
-            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --title "OLED Studio $RELEASE_TAG" --draft --notes-file release-notes.md
-          fi
-          gh release upload "$RELEASE_TAG" installers/* --repo "$GITHUB_REPOSITORY" --clobber
-      - name: Publish the complete release
-        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest --notes-file release-notes.md
-
+          repo = 'rizxe134/Display-Generator'
+          tag = 'v1.0.0'
+          def gh(*args):
+              return subprocess.check_output(['gh', *args], text=True)
+          release = json.loads(gh('api', f'repos/{repo}/releases/tags/{tag}'))
+          assert not release['draft']
+          assets = {a['name']: a for a in release['assets']}
+          keep = ["OLED-Studio-1.0.0-windows-x64-setup.exe","OLED-Studio-1.0.0-windows-arm64-setup.exe","OLED-Studio-1.0.0-mac-arm64.dmg","OLED-Studio-1.0.0-mac-x64.dmg","OLED-Studio-1.0.0-linux-x86_64.AppImage","OLED-Studio-1.0.0-linux-arm64.AppImage"]
+          remove = ["OLED-Studio-1.0.0-windows-x64-portable.exe","OLED-Studio-1.0.0-windows-arm64-portable.exe","OLED-Studio-1.0.0-windows-portable.exe","OLED-Studio-1.0.0-windows-setup.exe","OLED-Studio-1.0.0-mac-arm64.zip","OLED-Studio-1.0.0-mac-x64.zip","OLED-Studio-1.0.0-linux-amd64.deb","OLED-Studio-1.0.0-linux-arm64.deb"]
+          for name in keep:
+              a = assets[name]
+              assert a['state'] == 'uploaded' and a['size'] > 0
+              assert a['digest'].startswith('sha256:')
+          # Original build artifacts remain available to restore alternative packages.
+          build = json.loads(gh('api', f'repos/{repo}/actions/runs/36672315233'))
+          assert build['conclusion'] == 'success'
+          backup = json.loads(gh('api', f'repos/{repo}/actions/runs/36672315233/artifacts'))
+          assert len([a for a in backup['artifacts'] if not a['expired']]) == 3
+          Path('release-before.json').write_text(json.dumps(release, indent=2))
+          Path('SHA256SUMS.txt').write_text(''.join(assets[n]['digest'][7:] + '  ' + n + '\n' for n in sorted(keep)))
+          Path('release-notes.md').write_text("## OLED Studio 1.0.0\n\nOffline desktop designer for monochrome OLED graphics.\n\nDraw pixels, lines, rectangles, circles, ellipses, and bitmap text; save editable projects; export Arduino / ESP32 C++ or Raspberry Pi Linux Python code. Supports SH1106 128×64 and SSD1306 128×64 / 128×32 I²C presets. Platform builds, automated tests, and startup checks passed.\n\n### Download your app\n\nChoose ONE file for your laptop:\n\n| Your laptop | Download |\n| --- | --- |\n| Windows, Intel or AMD (most PCs) | [Windows x64 installer](https://github.com/rizxe134/Display-Generator/releases/download/v1.0.0/OLED-Studio-1.0.0-windows-x64-setup.exe) |\n| Windows, ARM / Snapdragon | [Windows ARM64 installer](https://github.com/rizxe134/Display-Generator/releases/download/v1.0.0/OLED-Studio-1.0.0-windows-arm64-setup.exe) |\n| Mac, Apple Silicon (M series) | [Apple Silicon DMG](https://github.com/rizxe134/Display-Generator/releases/download/v1.0.0/OLED-Studio-1.0.0-mac-arm64.dmg) |\n| Mac, Intel | [Intel DMG](https://github.com/rizxe134/Display-Generator/releases/download/v1.0.0/OLED-Studio-1.0.0-mac-x64.dmg) |\n| Linux, Intel or AMD | [Linux x64 AppImage](https://github.com/rizxe134/Display-Generator/releases/download/v1.0.0/OLED-Studio-1.0.0-linux-x86_64.AppImage) |\n| Linux, ARM64 | [Linux ARM64 AppImage](https://github.com/rizxe134/Display-Generator/releases/download/v1.0.0/OLED-Studio-1.0.0-linux-arm64.AppImage) |\n\nWindows: run the setup file. Mac: open the DMG and drag the app to Applications. Linux: mark the AppImage executable and run it.\n\nSHA256SUMS.txt is optional for checking download integrity. GitHub's automatic Source code ZIP and TAR.GZ files are for developers, not app installers.\n\nThese initial packages are unsigned. Physical OLED hardware testing is not included. Raspberry Pi export targets Linux boards, not Pico.\n")
+          for name in remove:
+              if name in assets:
+                  subprocess.run(['gh', 'release', 'delete-asset', tag, name, '--repo', repo, '--yes'], check=True)
+          subprocess.run(['gh', 'release', 'upload', tag, 'SHA256SUMS.txt', '--repo', repo, '--clobber'], check=True)
+          subprocess.run(['gh', 'release', 'edit', tag, '--repo', repo, '--notes-file', 'release-notes.md'], check=True)
+          after = json.loads(gh('api', f'repos/{repo}/releases/tags/{tag}'))
+          assert {a['name'] for a in after['assets']} == set(keep + ['SHA256SUMS.txt'])
+          assert all(a['state'] == 'uploaded' for a in after['assets'])
+                    PY
+      - name: Save original release metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-release-metadata
+          path: release-before.json
