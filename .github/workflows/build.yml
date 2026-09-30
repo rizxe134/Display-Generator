@@ -68,5 +68,9 @@ jobs:
       - name: Publish release installers
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" installers/* --repo "$GITHUB_REPOSITORY" --title "OLED Studio $GITHUB_REF_NAME" --generate-notes
+        run: |
+          files=(installers/*-windows-x64-setup.exe installers/*-windows-arm64-setup.exe installers/*-mac-x64.dmg installers/*-mac-arm64.dmg installers/*-linux-x86_64.AppImage installers/*-linux-arm64.AppImage)
+          for file in "${files[@]}"; do test -s "$file"; done
+          (cd installers && sha256sum *-windows-x64-setup.exe *-windows-arm64-setup.exe *-mac-x64.dmg *-mac-arm64.dmg *-linux-x86_64.AppImage *-linux-arm64.AppImage > SHA256SUMS.txt)
+          gh release create "$GITHUB_REF_NAME" "${files[@]}" installers/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --title "OLED Studio $GITHUB_REF_NAME" --generate-notes
 
