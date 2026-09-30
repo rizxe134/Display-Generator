@@ -35,7 +35,11 @@ jobs:
         run: npm run smoke
       - name: Desktop startup check (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a npm run smoke
+        run: |
+          node node_modules/electron/install.js
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+          xvfb-run -a npm run smoke
       - name: Build installers
         run: npx electron-builder ${{ matrix.target }} --publish never
         env:

@@ -5,7 +5,8 @@ const {validateProject,parseProject,MAX_PROJECT_BYTES}=require('./project.cjs');
 const entry=path.join(__dirname,'../renderer/index.html'),entryURL=pathToFileURL(entry).href;
 const smoke=process.argv.includes('--smoke-test');
 if(smoke)app.setPath('userData',path.join(app.getPath('temp'),`oled-studio-smoke-${process.pid}`));
-let win,smokeTimer;
+let win,smokeTimer,rendererReady=false,pageLoaded=false,smokeComplete=false;
+function finishSmoke(){if(smoke&&!smokeComplete&&rendererReady&&pageLoaded){smokeComplete=true;clearTimeout(smokeTimer);console.log('SMOKE PASS: desktop renderer loaded and secure preload bridge is ready.');app.exit(0)}}
 function trusted(event){if(!win||event.sender!==win.webContents||event.senderFrame?.url!==entryURL)throw Error('Unauthorized request.');}
 function codeText(code){if(typeof code!=='string'||code.length>200000)throw Error('Invalid code export.');return code;}
 function reply(fn){return async(event,payload)=>{try{trusted(event);return await fn(payload)}catch(error){return{ok:false,error:error.message}}};}
@@ -31,7 +32,7 @@ ipcMain.handle('open-project',reply(async()=>{
   return{ok:true,project:parseProject(await fs.readFile(file,'utf8'))};
 }));
 ipcMain.handle('copy-code',reply(async code=>{clipboard.writeText(codeText(code));return{ok:true}}));
-ipcMain.on('renderer-ready',event=>{trusted(event);if(smoke){clearTimeout(smokeTimer);console.log('SMOKE PASS: desktop renderer loaded and secure preload bridge is ready.');app.exit(0)}});
+ipcMain.on('renderer-ready',event=>{trusted(event);rendererReady=true;finishSmoke()});
 const external=new Set(['https://github.com/adafruit/Adafruit_SH110x','https://github.com/adafruit/Adafruit_SSD1306','https://luma-oled.readthedocs.io/en/latest/python-usage.html']);
 function openLink(url){if(external.has(url))shell.openExternal(url).catch(()=>{});}
 function createWindow(){
@@ -39,8 +40,8 @@ function createWindow(){
   win.webContents.setWindowOpenHandler(({url})=>{openLink(url);return{action:'deny'}});
   win.webContents.on('will-navigate',(event,url)=>{if(url!==entryURL){event.preventDefault();openLink(url)}});
   win.webContents.session.setPermissionRequestHandler((_webContents,_permission,callback)=>callback(false));
-  win.webContents.on('render-process-gone',()=>{if(smoke)app.exit(1)});
-  win.loadFile(entry).catch(error=>{console.error(error.message);app.exit(1)});
+  win.webContents.on('render-process-gone',()=>{if(smoke&&!smokeComplete)app.exit(1)});
+  win.loadFile(entry).then(()=>{pageLoaded=true;finishSmoke()}).catch(error=>{if(!smokeComplete){console.error(error.message);app.exit(1)}});
   if(smoke)smokeTimer=setTimeout(()=>{console.error('Desktop startup timed out.');app.exit(1)},20000);
   const action=name=>()=>win?.webContents.send('menu-action',name);
   Menu.setApplicationMenu(Menu.buildFromTemplate([
@@ -53,3 +54,4 @@ function createWindow(){
 app.whenReady().then(createWindow);
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
 app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()});
+
